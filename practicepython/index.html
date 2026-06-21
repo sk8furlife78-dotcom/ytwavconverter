@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Youtube to WAV Converter</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    
+    <!-- Test Link for Playlist 
+    https://youtube.com/playlist?list=PLj6iY_EEonnSLaXydP3KHYWuufBHS7VLa&si=wXuhBbLKHHp0FXvX -->>
+
+    <!-- Test for Single Video 
+    https://www.youtube.com/watch?v=_jOYrv2U1LU&list=PLj6iY_EEonnSLaXydP3KHYWuufBHS7VLa&index=9 -->
+    
+    <style>
+        body { 
+            font-family: 'Roboto', 'Segoe UI', sans-serif; 
+            max-width: 600px; 
+            margin: 40px auto; 
+            padding: 20px; 
+            background-color: #1c1c1c;  
+        }
+        .card { 
+            background: rgb(70, 70, 70); 
+            padding: 30px; 
+            border-radius: 8px; 
+            color: rgb(244, 247, 229);
+        }
+        input[type="text"] { 
+            width: 100%; 
+            padding: 12px; 
+            margin: 10px 0; 
+            border: 1px solid #04273b; 
+            border-radius: 4px; 
+            box-sizing: border-box;
+            background-color: white;
+            color: black;
+        }
+        button { 
+            background-color: #085480; 
+            color: white; 
+            border: none; 
+            padding: 12px 20px; 
+            font-weight: bold; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            width: 100%; 
+            margin-bottom: 15px;
+            transition: background-color 0.2s;
+        }
+        button:hover { background-color: #04273b; }
+        button:disabled { background-color: #444 !important; cursor: not-allowed; }
+        
+        /* Progress Styling matching your theme */
+        #progressContainer {
+            background: #333;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 15px;
+            border: 1px solid #04273b;
+        }
+        progress {
+            width: 100%;
+            height: 15px;
+            margin-top: 8px;
+        }
+
+        #statusList { margin-top: 20px; padding: 0; list-style: none; }
+        .status-item { padding: 10px; margin-bottom: 5px; border-radius: 4px; border-left: 5px solid #ccc; color: #333; }
+        .success { border-left-color: #2ecc71; background: #e8f8f0; }
+        .failed { border-left-color: #e74c3c; background: #fdedec; }
+        .download-link { float: right; color: #3498db; text-decoration: none; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>Video/Playlist - WAV Converter</h2>
+    <p>Paste your YouTube links below</p>
+    
+    <input type="text" id="playlistUrl" placeholder="Paste Youtube Playlist link here">
+    <button id="playlistBtn" onclick="processDownload(document.getElementById('playlistUrl').value, 'playlist')">Start Playlist Conversion</button> 
+
+    <input type="text" id="VideoUrl" placeholder="Paste Youtube Video link here">
+    <button id="singleBtn" onclick="processDownload(document.getElementById('VideoUrl').value, 'single')">Start Video Conversion</button> 
+    
+    <div id="progressContainer" style="display: none;">
+        <label style="font-weight: bold;">Processing Audio Pipeline...</label>
+        <progress id="progressBar" value="0" max="100"></progress>
+        <div style="text-align: right; margin-top: 5px; font-weight: bold;" id="progressText">0%</div>
+    </div>
+
+    <ul id="statusList"></ul>
+</div>
+
+<script>
+// =================================================================
+// 1. THE HELPER FUNCTIONS (Always put these at the very beginning)
+// =================================================================
+
+// This is your new URL cleanup helper function
+function sanitizeYouTubeUrl(rawUrl) {
+    try {
+        const urlObj = new URL(rawUrl);
+        urlObj.searchParams.delete('si');
+        urlObj.searchParams.delete('feature');
+        return urlObj.toString();
+    } catch (e) {
+        return rawUrl; // Fallback if input isn't a valid URL format
+    }
+}
+
+// This is your existing download trigger helper function
+function triggerAutomaticDownload(fileName) {
+    const hiddenLink = document.createElement('a');
+    hiddenLink.href = `https://dull-snakes-talk.loca.lt/api/download/${fileName}`;
+    hiddenLink.download = fileName; 
+    document.body.appendChild(hiddenLink);
+    hiddenLink.click();
+    document.body.removeChild(hiddenLink);
+}
+
+
+// =================================================================
+// 2. THE MASTER FUNCTION
+// =================================================================
+async function processDownload(videoUrl, mode) {
+    if (!videoUrl.trim()) {
+        alert("Please paste a valid link first!");
+        return;
+    }
+
+    // Call the helper function right here to clean the link
+    const cleanUrl = sanitizeYouTubeUrl(videoUrl);
+
+    // Grab UI elements
+    const button = document.getElementById(mode === 'single' ? 'singleBtn' : 'playlistBtn');
+    const progressContainer = document.getElementById('progressContainer');
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    const statusList = document.getElementById('statusList');
+
+    // UI Reset
+    const originalText = button.innerText;
+    button.innerText = "Processing...";
+    button.disabled = true;
+    progressContainer.style.display = "block";
+    progressBar.value = 0;
+    progressText.innerText = "0%";
+    statusList.innerHTML = ""; 
+
+    // Progress Polling Timer
+    const progressInterval = setInterval(async () => {
+        try {
+            const res = await fetch('https://dull-snakes-talk.loca.lt/api/progress');
+            const progressData = await res.json();
+            progressBar.value = progressData.percentage;
+            progressText.innerText = progressData.percentage + "%";
+        } catch (err) {
+            console.error("Progress fetch issue:", err);
+        }
+    }, 500);
+
+    const endpoint = mode === 'single' ? '/api/process-single' : '/api/process-playlist';
+
+
+    // =================================================================
+    // 3. THE MAIN FETCH TRY / CATCH BLOCK
+    // =================================================================
+    try {
+        // This 'try' block watches the live network call to your Flask backend
+        const response = await fetch(`https://dull-snakes-talk.loca.lt${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: cleanUrl }) // Sending the cleaned link!
+        });
+        const data = await response.json();
+
+        if (response.ok) {
+            progressBar.value = 100;
+            progressText.innerText = "100%";
+
+            if (mode === 'single') {
+                const li = document.createElement('li');
+                li.className = "status-item success";
+                li.innerHTML = `🎵 <strong>${data.filename}</strong> <span class="download-link">Ready</span>`;
+                statusList.appendChild(li);
+                triggerAutomaticDownload(data.filename);
+            } else {
+                data.success_files.forEach(fileName => {
+                    const li = document.createElement('li');
+                    li.className = "status-item success";
+                    li.innerHTML = `🎵 <strong>${fileName}</strong> <span class="download-link">Saved</span>`;
+                    statusList.appendChild(li);
+                    triggerAutomaticDownload(fileName);
+                });
+
+                data.failed_videos.forEach(errorTitle => {
+                    const li = document.createElement('li');
+                    li.className = "status-item failed";
+                    li.innerHTML = `❌ <strong>Failed:</strong> ${errorTitle}`;
+                    statusList.appendChild(li);
+                });
+            }
+        } else {
+            alert("Server Error: " + data.error);
+        }
+
+    } catch (error) {
+        // If the Flask server is down or a network crash happens, code jumps straight here
+        console.error("Network Failure:", error);
+        alert("Could not reach backend server! Ensure python3 app.py is alive.");
+
+    } finally {
+        // This block ALWAYS runs at the very end, whether the try succeeded or failed
+        clearInterval(progressInterval);
+        button.innerText = originalText;
+        button.disabled = false;
+    }
+}
+</script>
+
+</body>
+</html>

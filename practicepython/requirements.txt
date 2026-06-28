@@ -2,3 +2,5 @@ Flask==3.0.3
 Flask-CORS==4.0.1
 yt-dlp
 gunicorn
+pydub==0.25.1
+
